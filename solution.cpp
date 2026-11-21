@@ -305,6 +305,8 @@ bool openDispute(State &state, string disputeId, string paymentId)
     dispute.status = "OPEN";
     dispute.merchantId = payment.merchantId;
     dispute.paymentId = paymentId;
+    payment.hasDispute = true;
+    payment.disputeId = disputeId;
     state.accounts.at(payment.merchantId) = account;
     state.payments.at(paymentId) = payment;
     state.disputes.insert(make_pair(disputeId, dispute));
@@ -329,7 +331,12 @@ bool winDispute(State &state, string disputeId)
         return false;
     }
     Account account = accountState.account;
+    if (account.held < dispute.exposure)
+    {
+        return false;
+    }
     account.available += dispute.exposure;
+    account.held -= dispute.exposure;
     dispute.status = "WON";
     state.accounts.at(dispute.merchantId) = account;
     state.disputes.at(disputeId) = dispute;
