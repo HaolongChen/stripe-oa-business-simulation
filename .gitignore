@@ -3,3 +3,4 @@ solution.exe
 *.o
 *.out.tmp
 .codegraphy/*
+*.exe
