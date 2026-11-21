@@ -86,6 +86,17 @@ StateReturn getHold(State &state, string holdId)
     return res;
 }
 
+StateReturn getPayment(State &state, string paymentId){
+    auto it = state.payments.find(paymentId);
+    StateReturn res;
+    if(it == state.payments.end()){
+        return res;
+    }
+    res.payment = it->second;
+    res.paymentAvailable = true;
+    return res;
+}
+
 bool accountService(State &state, string merchantId)
 {
     if (state.accounts.contains(merchantId))
@@ -185,6 +196,17 @@ bool releaseService(State &state, string holdId)
     return true;
 }
 
+bool refundService(State &state, string refundId, string paymentId, int64 amount){
+    if (amount <= 0){
+        return false;
+    }
+    StateReturn paymentState = getPayment(state, paymentId);
+    if(!paymentState.paymentAvailable){
+        return false;
+    }
+    Payment payment = paymentState.payment;
+}
+
 void ok(string command)
 {
     cout << "OK " << command << " ";
@@ -264,6 +286,11 @@ int main()
                 cout << holdId << endl;
                 continue;
             }
+        }
+        else if (command == "REFUND"){
+            string refundId, paymentId;
+            int64 amount;
+            cin >> refundId >> paymentId >> amount;
         }
 
         // TODO: Parse command arguments.
