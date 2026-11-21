@@ -20,6 +20,7 @@ struct Payment
     int64 refundedGross = 0;
     int64 refundedFee = 0;
     string disputeId;
+    bool hasDispute = false;
 };
 
 struct Hold
@@ -246,7 +247,8 @@ bool refundService(State &state, string refundId, string paymentId, int64 amount
     }
     Account account = accountState.account;
     int64 newRefundedGross = payment.refundedGross + amount;
-    int64 targetRefundedFee = floor((i128)(payment.originalFee) * (i128)newRefundedGross / (i128)(payment.originalGross));
+    i128 feeMulGross = (i128)(payment.originalFee) * (i128)(newRefundedGross);
+    int64 targetRefundedFee = feeMulGross / payment.originalGross;
     int64 feeComponent = targetRefundedFee - payment.refundedFee;
     int64 merchantDebit = amount - feeComponent;
     if (account.available < merchantDebit)
@@ -261,6 +263,123 @@ bool refundService(State &state, string refundId, string paymentId, int64 amount
     state.payments.at(paymentId) = payment;
     state.refundIds.insert(refundId);
     return true;
+}
+
+bool openDispute(State &state, string disputeId, string paymentId)
+{
+    if (state.disputes.contains(disputeId))
+    {
+        return false;
+    }
+    StateReturn paymentState = getPayment(state, paymentId);
+    if (!paymentState.paymentAvailable)
+    {
+        return false;
+    }
+    Payment payment = paymentState.payment;
+    if (payment.hasDispute)
+    {
+        return false;
+    }
+    if (payment.originalGross == payment.refundedGross)
+    {
+        return false;
+    }
+    StateReturn accountState = balanceService(state, payment.merchantId);
+    if (!accountState.accountAvailable)
+    {
+        return false;
+    }
+    Account account = accountState.account;
+    int64 remainingGross = payment.originalGross - payment.refundedGross;
+    int64 remainingFee = payment.originalFee - payment.refundedFee;
+    int64 remainingExposure = remainingGross - remainingFee;
+    if (account.available < remainingExposure)
+    {
+        return false;
+    }
+    account.available -= remainingExposure;
+    account.held += remainingExposure;
+    Dispute dispute;
+    dispute.exposure = remainingExposure;
+    dispute.status = "OPEN";
+    dispute.merchantId = payment.merchantId;
+    dispute.paymentId = paymentId;
+    state.accounts.at(payment.merchantId) = account;
+    state.payments.at(paymentId) = payment;
+    state.disputes.insert(make_pair(disputeId, dispute));
+    return true;
+}
+
+bool winDispute(State &state, string disputeId)
+{
+    StateReturn disputeState = getDispute(state, disputeId);
+    if (!disputeState.disputeAvailable)
+    {
+        return false;
+    }
+    Dispute dispute = disputeState.dispute;
+    if (dispute.status != "OPEN")
+    {
+        return false;
+    }
+    StateReturn accountState = balanceService(state, dispute.merchantId);
+    if (!accountState.accountAvailable)
+    {
+        return false;
+    }
+    Account account = accountState.account;
+    account.available += dispute.exposure;
+    dispute.status = "WON";
+    state.accounts.at(dispute.merchantId) = account;
+    state.disputes.at(disputeId) = dispute;
+    return true;
+}
+
+bool loseDispute(State &state, string disputeId)
+{
+    StateReturn disputeState = getDispute(state, disputeId);
+    if (!disputeState.disputeAvailable)
+    {
+        return false;
+    }
+    Dispute dispute = disputeState.dispute;
+    if (dispute.status != "OPEN")
+    {
+        return false;
+    }
+    StateReturn accountState = balanceService(state, dispute.merchantId);
+    if (!accountState.accountAvailable)
+    {
+        return false;
+    }
+    Account account = accountState.account;
+    if (account.held < dispute.exposure)
+    {
+        return false;
+    }
+    account.held -= dispute.exposure;
+    dispute.status = "LOST";
+    state.accounts.at(dispute.merchantId) = account;
+    state.disputes.at(disputeId) = dispute;
+    return true;
+}
+
+bool disputeService(State &state, string disputeId, string paymentId, string status)
+{
+    if (status == "OPEN")
+    {
+        return openDispute(state, disputeId, paymentId);
+    }
+    if (status == "WIN")
+    {
+        return winDispute(state, disputeId);
+    }
+    if (status == "LOSE")
+    {
+        return loseDispute(state, disputeId);
+    }
+    return false;
 }
 
 void ok(string command)
@@ -302,7 +421,7 @@ int main()
             cin >> paymentId >> merchantId >> gross >> fee;
             if (chargeService(state, paymentId, merchantId, gross, fee))
             {
-                ok(command);
+                ok("PAYMENT");
                 cout << paymentId << endl;
                 continue;
             }
@@ -315,8 +434,7 @@ int main()
             if (accountState.accountAvailable)
             {
                 Account account = accountState.account;
-                ok(command);
-                cout << merchantId << " " << account.available << " " << account.held << " " << account.fees << endl;
+                cout << "BALANCE " << merchantId << " " << account.available << " " << account.held << " " << account.fees << endl;
                 continue;
             }
         }
@@ -352,6 +470,18 @@ int main()
             {
                 ok(command);
                 cout << refundId << endl;
+                continue;
+            }
+        }
+        else if (command == "DISPUTE")
+        {
+            string disputeId, paymentId, status;
+            cin >> disputeId >> paymentId >> status;
+            if (disputeService(state, disputeId, paymentId, status))
+            {
+                ok(command);
+                cout << disputeId << endl;
+                continue;
             }
         }
 
