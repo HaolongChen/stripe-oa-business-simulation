@@ -63,14 +63,26 @@ StateReturn
 balanceService(State &state, string merchantId)
 {
     auto it = state.accounts.find(merchantId);
+    StateReturn res;
     if (it == state.accounts.end())
     {
-        StateReturn res;
         return res;
     }
-    StateReturn res;
     res.account = it->second;
     res.accountAvailable = true;
+    return res;
+}
+
+StateReturn getHold(State &state, string holdId)
+{
+    auto it = state.holds.find(holdId);
+    StateReturn res;
+    if (it == state.holds.end())
+    {
+        return res;
+    }
+    res.hold = it->second;
+    res.holdAvailable = true;
     return res;
 }
 
@@ -113,6 +125,63 @@ bool chargeService(State &state, string paymentId, string merchantId, int64 gros
     payment.originalGross = gross;
     state.accounts.at(merchantId) = account;
     state.payments.insert(make_pair(paymentId, payment));
+    return true;
+}
+
+bool holdService(State &state, string holdId, string merchantId, int64 amount)
+{
+    if (amount <= 0)
+    {
+        return false;
+    }
+    if (state.holds.contains(holdId))
+    {
+        return false;
+    }
+    StateReturn accountState = balanceService(state, merchantId);
+    if (!accountState.accountAvailable)
+    {
+        return false;
+    }
+    Account account = accountState.account;
+    if (account.available < amount)
+    {
+        return false;
+    }
+    account.available -= amount;
+    account.held += amount;
+    Hold hold;
+    hold.amount = amount;
+    hold.merchantId = merchantId;
+    hold.active = true;
+    state.accounts.at(merchantId) = account;
+    state.holds.insert(make_pair(holdId, hold));
+    return true;
+}
+
+bool releaseService(State &state, string holdId)
+{
+    StateReturn holdState = getHold(state, holdId);
+    if (!holdState.holdAvailable)
+    {
+        return false;
+    }
+    Hold hold = holdState.hold;
+    if (!hold.active)
+    {
+        return false;
+    }
+    StateReturn accountState = balanceService(state, hold.merchantId);
+    if (!accountState.accountAvailable)
+    {
+        return false;
+    }
+    Account account = accountState.account;
+    account.held -= hold.amount;
+    account.available += hold.amount;
+    hold.active = false;
+    state.accounts.at(hold.merchantId) = account;
+    state.holds.at(holdId) = hold;
     return true;
 }
 
@@ -170,6 +239,29 @@ int main()
                 Account account = accountState.account;
                 ok(command);
                 cout << merchantId << " " << account.available << " " << account.held << " " << account.fees << endl;
+                continue;
+            }
+        }
+        else if (command == "HOLD")
+        {
+            string holdId, merchantId;
+            int64 amount;
+            cin >> holdId >> merchantId >> amount;
+            if (holdService(state, holdId, merchantId, amount))
+            {
+                ok(command);
+                cout << holdId << endl;
+                continue;
+            }
+        }
+        else if (command == "RELEASE")
+        {
+            string holdId;
+            cin >> holdId;
+            if (releaseService(state, holdId))
+            {
+                ok(command);
+                cout << holdId << endl;
                 continue;
             }
         }
