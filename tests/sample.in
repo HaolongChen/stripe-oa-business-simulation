@@ -1,0 +1,14 @@
+13
+ACCOUNT shop_a
+CHARGE pay_1 shop_a 10000 300
+BALANCE shop_a
+HOLD hold_1 shop_a 2000
+BALANCE shop_a
+RELEASE hold_1
+BALANCE shop_a
+REFUND refund_1 pay_1 3000
+BALANCE shop_a
+REFUND refund_1 pay_1 3000
+DISPUTE dispute_1 pay_1 OPEN
+BALANCE shop_a
+DISPUTE dispute_1 pay_1 WIN

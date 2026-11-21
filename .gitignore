@@ -1,0 +1,5 @@
+solution
+solution.exe
+*.o
+*.out.tmp
+.codegraphy/*
