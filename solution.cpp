@@ -86,14 +86,29 @@ StateReturn getHold(State &state, string holdId)
     return res;
 }
 
-StateReturn getPayment(State &state, string paymentId){
+StateReturn getPayment(State &state, string paymentId)
+{
     auto it = state.payments.find(paymentId);
     StateReturn res;
-    if(it == state.payments.end()){
+    if (it == state.payments.end())
+    {
         return res;
     }
     res.payment = it->second;
     res.paymentAvailable = true;
+    return res;
+}
+
+StateReturn getDispute(State &state, string disputeId)
+{
+    auto it = state.disputes.find(disputeId);
+    StateReturn res;
+    if (it == state.disputes.end())
+    {
+        return res;
+    }
+    res.dispute = it->second;
+    res.disputeAvailable = true;
     return res;
 }
 
@@ -196,15 +211,56 @@ bool releaseService(State &state, string holdId)
     return true;
 }
 
-bool refundService(State &state, string refundId, string paymentId, int64 amount){
-    if (amount <= 0){
+bool refundService(State &state, string refundId, string paymentId, int64 amount)
+{
+    if (state.refundIds.contains(refundId))
+    {
+        return false;
+    }
+    if (amount <= 0)
+    {
         return false;
     }
     StateReturn paymentState = getPayment(state, paymentId);
-    if(!paymentState.paymentAvailable){
+    if (!paymentState.paymentAvailable)
+    {
         return false;
     }
     Payment payment = paymentState.payment;
+    StateReturn disputeState = getDispute(state, payment.disputeId);
+    if (disputeState.disputeAvailable)
+    {
+        if (disputeState.dispute.status == "OPEN")
+        {
+            return false;
+        }
+    }
+    if (payment.refundedGross + amount > payment.originalGross)
+    {
+        return false;
+    }
+    StateReturn accountState = balanceService(state, payment.merchantId);
+    if (!accountState.accountAvailable)
+    {
+        return false;
+    }
+    Account account = accountState.account;
+    int64 newRefundedGross = payment.refundedGross + amount;
+    int64 targetRefundedFee = floor((i128)(payment.originalFee) * (i128)newRefundedGross / (i128)(payment.originalGross));
+    int64 feeComponent = targetRefundedFee - payment.refundedFee;
+    int64 merchantDebit = amount - feeComponent;
+    if (account.available < merchantDebit)
+    {
+        return false;
+    }
+    account.available -= merchantDebit;
+    account.fees -= feeComponent;
+    payment.refundedGross = newRefundedGross;
+    payment.refundedFee = targetRefundedFee;
+    state.accounts.at(payment.merchantId) = account;
+    state.payments.at(paymentId) = payment;
+    state.refundIds.insert(refundId);
+    return true;
 }
 
 void ok(string command)
@@ -287,10 +343,16 @@ int main()
                 continue;
             }
         }
-        else if (command == "REFUND"){
+        else if (command == "REFUND")
+        {
             string refundId, paymentId;
             int64 amount;
             cin >> refundId >> paymentId >> amount;
+            if (refundService(state, refundId, paymentId, amount))
+            {
+                ok(command);
+                cout << refundId << endl;
+            }
         }
 
         // TODO: Parse command arguments.
